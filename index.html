@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Student Attendance Dashboard</title>
+
+  <!-- Tailwind CSS CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Chart.js and zoom plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+</head>
+<body class="bg-gray-100">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="logo px-4">
+      <span class="logo-text">ATTENDANCE</span>
+    </div>
+    <nav>
+      <ul>
+        <li data-page="dashboard" class="active">📊 Dashboard</li>
+        <li data-page="students">👨‍🎓 Students</li>
+        <li data-page="attendance">📝 Attendance</li>
+        <li data-page="settings">⚙️ Settings</li>
+      </ul>
+    </nav>
+    <div class="footer">
+      Game Play<br />
+      <span class="email">gameplayapp007@gmail.com</span>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Header -->
+    <header class="header">
+      <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+      <h1 id="pageTitle">Dashboard</h1>
+
+      <!-- Dashboard controls -->
+      <div class="flex items-center gap-2">
+        <select id="viewSelect" class="border p-2 rounded">
+          <option value="30" selected>Last 30 Days</option>
+          <option value="7">Last 7 Days</option>
+          <option value="1">Today</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Dashboard Section -->
+    <section id="dashboardSection">
+      <section class="cards">
+        <div class="card">
+          <p>Total Students</p>
+          <h2 id="totalStudentsCard">0</h2>
+        </div>
+        <div class="card">
+          <p>Total Present</p>
+          <h2 id="presentPercent">0%</h2>
+        </div>
+        <div class="card">
+          <p>Total Absent</p>
+          <h2 id="absentPercent">0%</h2>
+        </div>
+      </section>
+
+      <section class="charts">
+        <div class="chart-box">
+          <h2 class="font-semibold mb-2">Attendance (Day-wise)</h2>
+          <button class="reset-zoom-btn" onclick="resetChartsZoom()">Reset Zoom</button>
+          <div class="h-64">
+            <canvas id="barChart"></canvas>
+          </div>
+        </div>
+        <div class="chart-box">
+          <h2 class="font-semibold mb-2">Monthly Attendance</h2>
+          <div class="h-64">
+            <canvas id="doughnutChart"></canvas>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <!-- Students Section -->
+    <section id="studentsSection" class="hidden students">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold">Students</h2>
+        <button onclick="openStudentModal()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Add New Student</button>
+      </div>
+
+      <input
+        type="text"
+        id="searchInput"
+        placeholder="Search on anything..."
+        class="w-full border p-2 rounded mb-4"
+      />
+
+      <div class="bg-white shadow-md rounded overflow-hidden">
+        <table class="w-full border-collapse">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="p-2 border">Roll</th>
+              <th class="p-2 border">Name</th>
+              <th class="p-2 border">Class</th>
+              <th class="p-2 border">Section</th>
+              <th class="p-2 border">Mobile</th>
+              <th class="p-2 border">Action</th>
+            </tr>
+          </thead>
+          <tbody id="studentTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Attendance Section -->
+    <section id="attendanceSection" class="hidden">
+      <div class="flex flex-wrap gap-3 items-end mb-4">
+        <div>
+          <label class="text-sm text-gray-600 block mb-1">Month</label>
+          <select id="monthSelect" class="border p-2 rounded"></select>
+        </div>
+        <div>
+          <label class="text-sm text-gray-600 block mb-1">Year</label>
+          <select id="yearSelect" class="border p-2 rounded"></select>
+        </div>
+        <div>
+          <label class="text-sm text-gray-600 block mb-1">Class</label>
+          <select id="classFilter" class="border p-2 rounded">
+            <option value="all" selected>All Classes</option>
+          </select>
+        </div>
+        <button id="applyFilterBtn" class="bg-blue-600 text-white px-4 py-2 rounded">Apply</button>
+      </div>
+
+      <div class="w-full overflow-x-auto bg-white shadow-md rounded">
+        <table class="min-w-max border-collapse">
+          <thead class="bg-gray-100">
+            <tr id="attendanceHeader"></tr>
+          </thead>
+          <tbody id="attendanceTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Settings Section -->
+    <section id="settingsSection" class="hidden">
+      <h2 class="text-xl font-bold mb-4">Settings</h2>
+      <p class="text-gray-600">Settings options will go here...</p>
+    </section>
+  </main>
+
+  <!-- Student Modal -->
+  <div id="studentModal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center p-3">
+    <div class="bg-white p-6 rounded w-full max-w-md">
+      <h2 class="text-lg font-bold mb-4">Add Student</h2>
+      <form id="studentForm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <input type="text" id="name" placeholder="Name" class="w-full p-2 border rounded" required />
+          <input type="number" id="roll" placeholder="Roll Number" class="w-full p-2 border rounded" required />
+          <input type="text" id="class" placeholder="Class (e.g., Grade 5)" class="w-full p-2 border rounded" required />
+          <input type="text" id="section" placeholder="Section (e.g., A)" class="w-full p-2 border rounded" required />
+          <input type="text" id="mobile" placeholder="Mobile Number" class="w-full p-2 border rounded sm:col-span-2" required />
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button type="button" onclick="closeStudentModal()" class="px-4 py-2 bg-gray-400 text-white rounded">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- App JS -->
+  <script src="script.js"></script>
+</body>
+</html>
