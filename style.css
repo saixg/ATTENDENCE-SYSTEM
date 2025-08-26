@@ -1,0 +1,215 @@
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  background: #fff;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  transition: transform 0.3s ease;
+  z-index: 100;
+}
+.sidebar.hidden {
+  transform: translateX(-100%);
+}
+.sidebar.show {
+  transform: translateX(0);
+}
+.sidebar .logo {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #4f46e5;
+  margin-bottom: 24px;
+}
+.sidebar nav ul {
+  list-style: none;
+  padding: 0;
+}
+.sidebar nav ul li {
+  padding: 10px;
+  margin: 6px 0;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.sidebar nav ul li:hover,
+.sidebar nav ul li.active {
+  background: #e0e7ff;
+  color: #4f46e5;
+  font-weight: bold;
+}
+.sidebar .footer {
+  position: absolute;
+  bottom: 16px;
+  font-size: 0.8rem;
+  color: #555;
+}
+.sidebar .footer .email {
+  font-size: 0.75rem;
+  color: gray;
+}
+
+/* Sidebar Toggle Arrow Button */
+.sidebar-toggle-arrow {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translate(-100%, -50%);
+  background-color: #4f46e5;
+  color: white;
+  padding: 10px;
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+  font-size: 18px;
+  z-index: 150;
+  display: none;
+  user-select: none;
+}
+
+/* Show toggle arrow only on small screens */
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+  .sidebar.show {
+    transform: translateX(0);
+  }
+  .main-content {
+    margin-left: 0 !important;
+    transition: margin-left 0.3s ease;
+  }
+  .sidebar-toggle-arrow {
+    display: block;
+  }
+}
+
+/* Main Content */
+.main-content {
+  margin-left: 220px;
+  padding: 16px;
+  transition: margin-left 0.3s ease;
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.header h1 {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+.header .menu-btn {
+  display: none;
+  font-size: 1.3rem;
+  background: none;
+  cursor: pointer;
+}
+
+/* Cards */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.card {
+  background: #dbeafe;
+  padding: 14px;
+  border-radius: 10px;
+  text-align: center;
+}
+.card p {
+  color: gray;
+  font-size: 0.85rem;
+}
+.card h2 {
+  font-size: 1.4rem;
+  font-weight: bold;
+}
+
+/* Charts */
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.chart-box {
+  background: white;
+  padding: 14px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+.chart-box h2 {
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+
+canvas {
+  max-width: 100%;
+  height: auto !important;
+}
+
+/* Students */
+.students {
+  margin-top: 20px;
+}
+.students table th {
+  font-weight: 600;
+  text-align: left;
+}
+.students table td,
+.students table th {
+  font-size: 0.9rem;
+  padding: 6px;
+  border: 1px solid #ddd;
+}
+.students table tbody tr:hover {
+  background-color: #f3f4f6;
+}
+
+/* Modal */
+#studentModal {
+  animation: fadeIn 0.2s ease-in-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Toast (bottom-right notification) */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #4f46e5;
+  color: white;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
+  z-index: 200;
+  pointer-events: none;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+/* Utility */
+.hidden {
+  display: none !important;
+}
