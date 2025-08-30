@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PresenceAI Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/lucide.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #111827;
+            color: white;
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            width: 256px;
+            background-color: #0c0a09;
+            border-right: 1px solid #1f2937;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 24px;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: bold;
+            color: #22c55e;
+            margin-bottom: 32px;
+        }
+
+        .nav-section {
+            margin-bottom: 16px;
+        }
+
+        .nav-label {
+            display: block;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-item:hover {
+            background-color: #1f2937;
+            transform: scale(1.05) rotate(1deg);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        }
+
+        .nav-item:active {
+            transform: scale(0.95) rotate(-1deg);
+        }
+
+        .nav-item.active {
+            background-color: rgba(30, 58, 138, 0.4);
+            border-left: 4px solid #3b82f6;
+            box-shadow: 0 0 15px #3b82f6;
+        }
+
+        .nav-item.active::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 8px;
+            background: rgba(59, 130, 246, 0.1);
+            box-shadow: 0 0 25px #3b82f6;
+            animation: pulse 2s infinite;
+        }
+
+        .nav-item.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            width: 100%;
+            background: #60a5fa;
+            box-shadow: 0 0 20px #3b82f6;
+            animation: pulse 2s infinite;
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+            position: relative;
+            z-index: 10;
+            transition: all 0.3s ease;
+            color: #9ca3af;
+        }
+
+        .nav-item:hover .nav-icon {
+            color: #93c5fd;
+        }
+
+        .nav-item.active .nav-icon {
+            color: #60a5fa;
+            filter: drop-shadow(0 0 8px #3b82f6);
+            animation: bounce 1s infinite;
+        }
+
+        .nav-text {
+            position: relative;
+            z-index: 10;
+            transition: all 0.3s ease;
+            color: #d1d5db;
+        }
+
+        .nav-item:hover .nav-text {
+            color: #bfdbfe;
+        }
+
+        .nav-item.active .nav-text {
+            color: #93c5fd;
+            font-weight: 600;
+            filter: drop-shadow(0 0 8px #3b82f6);
+            animation: pulse 2s infinite;
+        }
+
+        .role-switcher {
+            margin-top: 32px;
+            border-top: 1px solid #1f2937;
+            padding-top: 16px;
+        }
+
+        .role-select {
+            width: 100%;
+            background-color: #1f2937;
+            padding: 8px 12px;
+            border-radius: 12px;
+            font-size: 14px;
+            color: #d1d5db;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border: none;
+            margin-bottom: 16px;
+        }
+
+        .user-info {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-bottom: 4px;
+        }
+
+        .user-email {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        /* Main Content Styles */
+        .main-content {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .page-title {
+            font-size: 30px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #22c55e;
+            letter-spacing: 0.025em;
+            filter: drop-shadow(0 0 8px #22c55e);
+        }
+
+        .page-subtitle {
+            color: #9ca3af;
+            margin-bottom: 24px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: all 0.3s ease;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        .stat-card:hover {
+            transform: scale(1.05) rotate(1deg);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+
+        .stat-card:active {
+            transform: scale(0.95) rotate(-1deg);
+        }
+
+        .stat-card.green { background-color: #059669; }
+        .stat-card.red { background-color: #dc2626; }
+        .stat-card.blue { background-color: #2563eb; }
+        .stat-card.purple { background-color: #9333ea; }
+
+        .stat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .stat-icon {
+            width: 32px;
+            height: 32px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Section Styles */
+        .section {
+            background-color: #1f2937;
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 24px;
+            font-weight: 800;
+            color: #22c55e;
+            margin-bottom: 24px;
+            letter-spacing: 0.025em;
+            filter: drop-shadow(0 0 8px #22c55e);
+        }
+
+        .updates-grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        .update-item {
+            padding: 16px;
+            background-color: #374151;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        .update-item:hover {
+            transform: scale(1.03);
+        }
+
+        .update-text {
+            font-size: 14px;
+            color: #e5e7eb;
+        }
+
+        /* Quick Actions */
+        .actions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .action-button {
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.025em;
+            cursor: pointer;
+            border: none;
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .action-button:hover {
+            transform: scale(1.05) rotate(1deg);
+            box-shadow: 0 0 18px rgba(34, 197, 94, 0.6);
+            opacity: 0.9;
+        }
+
+        .action-button:active {
+            transform: scale(0.95) rotate(-1deg);
+        }
+
+        .action-button.green { background-color: #059669; }
+        .action-button.blue { background-color: #2563eb; }
+        .action-button.purple { background-color: #9333ea; }
+        .action-button.indigo { background-color: #4f46e5; }
+        .action-button.pink { background-color: #ec4899; }
+        .action-button.teal { background-color: #0d9488; }
+        .action-button.red { background-color: #dc2626; }
+
+        .action-icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .section-note {
+            font-size: 14px;
+            color: #9ca3af;
+            margin-top: 24px;
+            font-style: italic;
+            text-align: center;
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @keyframes bounce {
+            0%, 20%, 53%, 80%, 100% { transform: translate3d(0, 0, 0); }
+            40%, 43% { transform: translate3d(0, -10px, 0); }
+            70% { transform: translate3d(0, -5px, 0); }
+            90% { transform: translate3d(0, -2px, 0); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                padding: 16px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .actions-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div>
+            <h1 class="logo">PresenceAI</h1>
+
+            <!-- Navigation -->
+            <nav>
+                <label class="nav-label">NAVIGATION</label>
+                <div id="navigation-links"></div>
+            </nav>
+        </div>
+
+        <!-- Role Switcher -->
+        <div class="role-switcher">
+            <div>
+                <label class="nav-label">ROLE</label>
+                <select id="role-select" class="role-select">
+                    <option value="teacher">👨‍🏫 Teacher</option>
+                    <option value="parent">👩‍👦 Parent</option>
+                    <option value="hr">🏢 HR/Admin</option>
+                </select>
+            </div>
+            <p class="user-info">Admin User</p>
+            <p class="user-email">admin@presenceai.com</p>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <h2 id="page-title" class="page-title">Dashboard</h2>
+        <p class="page-subtitle">Real-time attendance insights and analytics</p>
+
+        <!-- Quick Stats -->
+        <section id="stats-section" class="stats-grid">
+            <div class="stat-card green" style="animation-delay: 0s;">
+                <div class="stat-header">
+                    <svg class="stat-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                    </svg>
+                    <h2 class="stat-value">85%</h2>
+                </div>
+                <p class="stat-label">Present Today</p>
+            </div>
+
+            <div class="stat-card red" style="animation-delay: 0.15s;">
+                <div class="stat-header">
+                    <svg class="stat-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 7l-5-5-5 5M18 7v10a2 2 0 01-2 2H8a2 2 0 01-2-2V7m8 0H8m8 0h2a2 2 0 012 2v1"/>
+                    </svg>
+                    <h2 class="stat-value">12</h2>
+                </div>
+                <p class="stat-label">Absent</p>
+            </div>
+
+            <div class="stat-card blue" style="animation-delay: 0.3s;">
+                <div class="stat-header">
+                    <svg class="stat-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+                    </svg>
+                    <h2 class="stat-value">87.2</h2>
+                </div>
+                <p class="stat-label">Avg Trust Score</p>
+            </div>
+
+            <div class="stat-card purple" style="animation-delay: 0.45s;">
+                <div class="stat-header">
+                    <svg class="stat-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    <h2 class="stat-value">92%</h2>
+                </div>
+                <p class="stat-label">Attendance Rate</p>
+            </div>
+        </section>
+
+        <!-- AI Insights Update Feed -->
+        <section id="insights-section" class="section">
+            <h3 class="section-title">📊 AI Insights Updates</h3>
+            <div class="updates-grid">
+                <div class="update-item" style="animation-delay: 0s;">
+                    <p class="update-text">New student data processed</p>
+                </div>
+                <div class="update-item" style="animation-delay: 0.2s;">
+                    <p class="update-text">Attendance anomaly detected</p>
+                </div>
+                <div class="update-item" style="animation-delay: 0.4s;">
+                    <p class="update-text">Trust score updated for class 9A</p>
+                </div>
+                <div class="update-item" style="animation-delay: 0.6s;">
+                    <p class="update-text">Parent check-in completed</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section id="actions-section" class="section">
+            <h3 class="section-title">⚡ Quick Actions</h3>
+            <div id="actions-grid" class="actions-grid"></div>
+            <p class="section-note">Quick Actions mirror your navigation and help you instantly switch between key sections.</p>
+        </section>
+    </main>
+
+    <script>
+        // State management
+        let state = {
+            activePage: "Dashboard",
+            role: "teacher"
+        };
+
+        // Navigation data
+        const baseNavLinks = [
+            { title: "Dashboard", icon: "home" },
+            { title: "Presence Map", icon: "map" },
+            { title: "Timeline", icon: "activity" },
+            { title: "Trust Score", icon: "trophy" },
+            { title: "Absent", icon: "user-x" }
+        ];
+
+        // Icon mapping for SVG creation
+        const iconSVGs = {
+            home: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>',
+            map: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>',
+            activity: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>',
+            trophy: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>',
+            'user-x': '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>',
+            brain: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>',
+            'check-square': '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>'
+        };
+
+        // Get navigation links based on current role
+        function getNavLinks() {
+            let links = [...baseNavLinks];
+            if (state.role === "hr") {
+                links.push({ title: "AI Insights", icon: "brain" });
+            }
+            if (state.role === "parent") {
+                links.push({ title: "Check-in", icon: "check-square" });
+            }
+            return links;
+        }
+
+        // Get action button colors
+        function getActionColor(title) {
+            const colorMap = {
+                "Dashboard": "green",
+                "Presence Map": "blue", 
+                "Timeline": "purple",
+                "Trust Score": "indigo",
+                "AI Insights": "pink",
+                "Check-in": "teal",
+                "Absent": "red"
+            };
+            return colorMap[title] || "red";
+        }
+
+        // Create SVG icon
+        function createIcon(iconName, className = "nav-icon") {
+            return `<svg class="${className}" fill="none" stroke="currentColor" viewBox="0 0 24 24">${iconSVGs[iconName]}</svg>`;
+        }
+
+        // Render navigation
+        function renderNavigation() {
+            const container = document.getElementById('navigation-links');
+            const links = getNavLinks();
+            
+            container.innerHTML = links.map(link => `
+                <div class="nav-item ${state.activePage === link.title ? 'active' : ''}" 
+                     onclick="setActivePage('${link.title}')">
+                    ${createIcon(link.icon)}
+                    <span class="nav-text">${link.title}</span>
+                </div>
+            `).join('');
+        }
+
+        // Render quick actions
+        function renderQuickActions() {
+            const container = document.getElementById('actions-grid');
+            const links = getNavLinks();
+            
+            container.innerHTML = links.map(link => `
+                <button class="action-button ${getActionColor(link.title)}" 
+                        onclick="setActivePage('${link.title}')">
+                    ${createIcon(link.icon, "action-icon")}
+                    <span>${link.title}</span>
+                </button>
+            `).join('');
+        }
+
+        // Set active page
+        function setActivePage(page) {
+            state.activePage = page;
+            document.getElementById('page-title').textContent = page;
+            
+            // Show/hide dashboard sections
+            const isDashboard = page === "Dashboard";
+            document.getElementById('stats-section').classList.toggle('hidden', !isDashboard);
+            document.getElementById('insights-section').classList.toggle('hidden', !isDashboard);
+            document.getElementById('actions-section').classList.toggle('hidden', !isDashboard);
+            
+            renderNavigation();
+            renderQuickActions();
+        }
+
+        // Set role
+        function setRole(newRole) {
+            state.role = newRole;
+            renderNavigation();
+            renderQuickActions();
+        }
+
+        // Initialize
+        function init() {
+            renderNavigation();
+            renderQuickActions();
+            
+            // Role selector event
+            document.getElementById('role-select').addEventListener('change', (e) => {
+                setRole(e.target.value);
+            });
+        }
+
+        // Start the app
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
