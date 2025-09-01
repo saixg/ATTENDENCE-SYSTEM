@@ -1,442 +1,276 @@
-# ===============================
-# Robust Liveness Attendance (ONNX + MediaPipe + MiDaS depth + Challenge)
-# ===============================
-# - ONNX anti-spoofing (rolling average)
-# - MediaPipe blink/head detection
-# - Challenge-response (blink / turn)
-# - Monocular depth (MiDaS small) to detect flat photos/videos
-# - Fusion: require texture (ONNX) + behavior (challenge or passive) + depth variation
-# ===============================
-
 import os
 import cv2
-import numpy as np
 import face_recognition
-import onnxruntime
-import csv
-import random
-import time
-import math
-from collections import deque
-from datetime import datetime, date
-
-# Optional imports for depth
-try:
-    import torch
-    MIDAS_AVAILABLE = True
-except Exception:
-    MIDAS_AVAILABLE = False
-
+import numpy as np
 import mediapipe as mp
+import torch
+from ultralytics import YOLO
+import cvzone
+from datetime import datetime
+import csv
+import warnings
 
-# ---------------------------
-# CONFIG (tweak these)
-# ---------------------------
-ONNX_MODEL_PATH = "AntiSpoofing_bin_1.5_128.onnx"
-IMAGES_PATH = "images"
+warnings.filterwarnings("ignore")
+
+# ================== Paths ==================
+KNOWN_FACES_DIR = "images"
 ATTENDANCE_FILE = "Attendance.csv"
-CAM_INDEX = 0
+LIVENESS_MODEL_PATH = "l_version_1_300.pt"
 
-ROLLING_WINDOW = 7
-UPPER_THRESHOLD = -1.0   # ONNX avg > this signals texture confidence for real
-LOWER_THRESHOLD = -3.0
+# ================== Load YOLO Liveness Model ==================
+liveness_model = YOLO(LIVENESS_MODEL_PATH)
+classNames = ["fake", "real"]
 
-BLINK_EAR_THRESHOLD = 0.22
-BLINK_MIN_INTERVAL = 0.25
-
-HEAD_TURN_DELTA = 0.025
-
-CHALLENGE_INTERVAL = 8.0
-CHALLENGE_TIMEOUT = 4.0
-CHALLENGE_TYPES = ["BLINK", "TURN_LEFT", "TURN_RIGHT"]
-
-# Depth config
-USE_DEPTH = True
-MIDAS_MODEL_TYPE = "MiDaS_small"  # small = faster
-MIDAS_IMG_SIZE = 256              # MiDaS input size (smaller->faster but lower res)
-DEPTH_VARIATION_THRESHOLD = 0.08  # normalized depth variance threshold — tune on your cam
-DEPTH_SMOOTH_WINDOW = 5           # smooth depth variation over frames
-
-# ---------------------------
-# Helpers: Attendance CSV
-# ---------------------------
-if not os.path.exists(ATTENDANCE_FILE):
-    with open(ATTENDANCE_FILE, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Name", "Time", "Date"])
-
-def is_attendance_done(name):
-    today_str = date.today().strftime("%Y-%m-%d")
-    with open(ATTENDANCE_FILE, "r") as f:
-        for line in f.readlines()[1:]:
-            parts = line.strip().split(",")
-            if len(parts) >= 3 and parts[0] == name and parts[2] == today_str:
-                return True
-    return False
-
-def mark_attendance(name):
-    if is_attendance_done(name):
-        print(f"ℹ️ Attendance already marked for {name} today.")
-        return
-    now = datetime.now()
-    with open(ATTENDANCE_FILE, "a", newline="") as f:
-        f.write(f"{name},{now.strftime('%H:%M:%S')},{now.strftime('%Y-%m-%d')}\n")
-    print(f"✅ Attendance marked for {name}")
-
-# ---------------------------
-# Load known faces
-# ---------------------------
-if not os.path.exists(IMAGES_PATH):
-    raise FileNotFoundError(f"Put images named <NAME>.jpg in folder: {IMAGES_PATH}")
-
-images = []
-student_names = []
-for file in os.listdir(IMAGES_PATH):
-    path = os.path.join(IMAGES_PATH, file)
-    img = cv2.imread(path)
-    if img is None:
-        print(f"⚠️ Could not load {file}")
-        continue
-    images.append(img)
-    student_names.append(os.path.splitext(file)[0])
-
-def encode_faces(img_list):
-    encs = []
-    names = []
-    for idx, img in enumerate(img_list):
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        e = face_recognition.face_encodings(rgb)
-        if len(e) > 0:
-            encs.append(e[0])
-            names.append(student_names[idx])
-            print(f"✅ Encoded {student_names[idx]}")
-        else:
-            print(f"⚠️ No face found in {student_names[idx]}")
-    return encs, names
-
-print("Encoding known faces...")
-known_encodings, known_names = encode_faces(images)
-print("Done.")
-
-# ---------------------------
-# ONNX model loader
-# ---------------------------
-ort_session = onnxruntime.InferenceSession(ONNX_MODEL_PATH)
-
-def onnx_predict(face_img):
-    try:
-        resized = cv2.resize(face_img, (128,128))
-    except Exception:
-        return -10.0
-    lab = cv2.cvtColor(resized, cv2.COLOR_BGR2LAB)
-    l,a,b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    cl = clahe.apply(l)
-    merged = cv2.merge((cl,a,b))
-    rgb = cv2.cvtColor(merged, cv2.COLOR_BGR2RGB)
-    inp = rgb.astype(np.float32) / 255.0
-    inp = np.transpose(inp, (2,0,1)).astype(np.float32)[np.newaxis, ...]
-    outputs = ort_session.run(None, {ort_session.get_inputs()[0].name: inp})
-    # model returns scalar score
-    try:
-        return float(outputs[0][0][0])
-    except:
-        return float(outputs[0][0])
-
-# ---------------------------
-# MiDaS depth setup (optional)
-# ---------------------------
-midas = None
-midas_transform = None
-device = "cpu"
-if USE_DEPTH and MIDAS_AVAILABLE:
-    try:
-        import torchvision.transforms as transforms
-        # Load MiDaS via torch.hub (first run will download)
-        midas = torch.hub.load("intel-isl/MiDaS", MIDAS_MODEL_TYPE)
-        midas.to(device)
-        midas.eval()
-        # Use the default transform from MiDaS repo if available
-        try:
-            midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-            if MIDAS_MODEL_TYPE == "MiDaS_small":
-                midas_transform = midas_transforms.small_transform
-            else:
-                midas_transform = midas_transforms.default_transform
-        except Exception:
-            # fallback custom transform
-            midas_transform = lambda img: torch.from_numpy(cv2.resize(img, (MIDAS_IMG_SIZE, MIDAS_IMG_SIZE))).permute(2,0,1).unsqueeze(0).float() / 255.0
-        print("MiDaS loaded on device:", device)
-    except Exception as e:
-        print("⚠️ MiDaS load failed - continuing without depth. Error:", e)
-        midas = None
-        midas_transform = None
-elif USE_DEPTH and not MIDAS_AVAILABLE:
-    print("⚠️ PyTorch not available; depth disabled. Install torch for depth support.")
-    midas = None
-    midas_transform = None
-
-def compute_depth_variation(face_img):
-    """
-    Returns a normalized depth-variation scalar (0..1)
-    Higher means more 3D variation (real face). Photo is flatter -> smaller.
-    """
-    if midas is None or midas_transform is None:
-        return None
-    # convert BGR to RGB and transform
-    img_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
-    try:
-        inp = midas_transform(img_rgb).to(device)
-        with torch.no_grad():
-            prediction = midas(inp)
-            prediction = torch.nn.functional.interpolate(
-                prediction.unsqueeze(1),
-                size=img_rgb.shape[:2],
-                mode="bicubic",
-                align_corners=False
-            ).squeeze()
-        depth_map = prediction.cpu().numpy()
-        # normalize depth to 0..1
-        dmin, dmax = np.min(depth_map), np.max(depth_map)
-        if dmax - dmin < 1e-6:
-            norm = np.zeros_like(depth_map)
-        else:
-            norm = (depth_map - dmin) / (dmax - dmin)
-        # metric: use standard deviation of normalized depth
-        variation = float(np.std(norm))
-        return variation
-    except Exception as e:
-        # on any error, fallback to None
-        print("⚠️ Depth compute error:", e)
-        return None
-
-# Small cache for depth smoothing per name
-depth_windows = {}
-
-# ---------------------------
-# MediaPipe (behavioral)
-# ---------------------------
+# ================== Initialize Mediapipe Face Mesh ==================
 mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
 face_mesh = mp_face_mesh.FaceMesh(
     max_num_faces=1,
     refine_landmarks=True,
     min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
+    min_tracking_confidence=0.5,
 )
 
-def eye_aspect_ratio(landmarks, left=True):
-    if left:
-        pts = [33, 160, 158, 133, 153, 144]
-    else:
-        pts = [362, 385, 387, 263, 373, 380]
-    p = [(landmarks[i].x, landmarks[i].y) for i in pts]
-    A = math.hypot(p[1][0]-p[5][0], p[1][1]-p[5][1])
-    B = math.hypot(p[2][0]-p[4][0], p[2][1]-p[4][1])
-    C = math.hypot(p[0][0]-p[3][0], p[0][1]-p[3][1])
+# ================== Blink Detection Helper ==================
+def compute_EAR(landmarks, idx1, idx2, idx3, idx4, idx5, idx6, width, height):
+    # Eye Aspect Ratio for blink detection
+    x1, y1 = int(landmarks[idx1].x * width), int(landmarks[idx1].y * height)
+    x2, y2 = int(landmarks[idx2].x * width), int(landmarks[idx2].y * height)
+    x3, y3 = int(landmarks[idx3].x * width), int(landmarks[idx3].y * height)
+    x4, y4 = int(landmarks[idx4].x * width), int(landmarks[idx4].y * height)
+    x5, y5 = int(landmarks[idx5].x * width), int(landmarks[idx5].y * height)
+    x6, y6 = int(landmarks[idx6].x * width), int(landmarks[idx6].y * height)
+
+    # vertical distances
+    A = np.linalg.norm([x2 - x6, y2 - y6])
+    B = np.linalg.norm([x3 - x5, y3 - y5])
+    # horizontal distance
+    C = np.linalg.norm([x1 - x4, y1 - y4])
+
+    # Avoid division by zero
     if C == 0:
-        return 1.0
-    return (A + B) / (2.0 * C)
+        return 0
+    
+    ear = (A + B) / (2.0 * C)
+    return ear
 
-# ---------------------------
-# Session state
-# ---------------------------
-session_marked = set()
-score_windows = {}
-prev_label = {}
-last_blink_time = 0.0
-last_challenge_time = {}
-pending_challenge = {}
-challenge_passed = {}
-prev_nose = {}
-face_last_seen = {}
+# Adjusted thresholds
+EAR_THRESHOLD = 0.25  # Slightly higher threshold
+EAR_FRAMES = 3        # More frames to confirm blink
 
-def issue_challenge(name):
-    typ = random.choice(CHALLENGE_TYPES)
-    pending_challenge[name] = (typ, time.time())
-    last_challenge_time[name] = time.time()
-    challenge_passed[name] = False
-    return typ
+# ================== Attendance Function ==================
+def mark_attendance(name):
+    if not os.path.exists(ATTENDANCE_FILE):
+        with open(ATTENDANCE_FILE, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Name", "Time"])
+    
+    # Check if already marked today
+    today = datetime.now().strftime("%Y-%m-%d")
+    with open(ATTENDANCE_FILE, "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            if name in line and today in line:
+                return  # Already marked today
+    
+    with open(ATTENDANCE_FILE, "a", newline="") as f:
+        writer = csv.writer(f)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        writer.writerow([name, now])
+        print(f"Attendance marked for {name} at {now}")
 
-# ---------------------------
-# Camera loop
-# ---------------------------
-cap = cv2.VideoCapture(CAM_INDEX)
-if not cap.isOpened():
-    raise RuntimeError("Cannot open camera.")
+# ================== Load Known Faces ==================
+known_face_encodings = []
+known_face_names = []
 
-print("Starting. Press 'q' to quit.")
+print("Loading known faces...")
+for file in os.listdir(KNOWN_FACES_DIR):
+    if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+        path = os.path.join(KNOWN_FACES_DIR, file)
+        img = face_recognition.load_image_file(path)
+        encodings = face_recognition.face_encodings(img)
+        if encodings:  # Check if face was found
+            encoding = encodings[0]
+            known_face_encodings.append(encoding)
+            known_face_names.append(os.path.splitext(file)[0])
+            print(f"Loaded face: {os.path.splitext(file)[0]}")
+
+print(f"Total faces loaded: {len(known_face_names)}")
+
+# ================== Rolling buffer for liveness ==================
+score_buffer = {}  # key: name, value: list of scores
+BUFFER_SIZE = 7    # Increased buffer size
+REAL_THRESHOLD = 0.5  # Lowered threshold for better sensitivity
+SPOOF_THRESHOLD = 0.3
+
+# ================== Blink tracking ==================
+blink_counter = {}
+total_blinks = {}
+frame_count = {}
+
+# ================== Video Capture ==================
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+print("Starting attendance system... Press 'q' to quit")
+
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("⚠️ Camera frame grab failed.")
         break
-    h, w = frame.shape[:2]
 
-    # Fast small frame for face_recognition
-    rgb_small = cv2.cvtColor(cv2.resize(frame, (0,0), fx=0.25, fy=0.25), cv2.COLOR_BGR2RGB)
-    face_locs = face_recognition.face_locations(rgb_small)
-    face_encs = face_recognition.face_encodings(rgb_small, face_locs)
+    # Use higher resolution for face detection
+    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-    # MediaPipe on full frame for behavior & mesh drawing
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = face_mesh.process(frame_rgb)
+    face_locations = face_recognition.face_locations(rgb_small_frame, model="hog")
+    face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
-    # compute passive blink and nose x (global)
-    blink_flag = False
-    nose_x_global = None
-    if results.multi_face_landmarks:
-        for flm in results.multi_face_landmarks:
-            mp_drawing.draw_landmarks(frame, flm, mp_face_mesh.FACEMESH_CONTOURS,
-                                      landmark_drawing_spec=mp_drawing.DrawingSpec(color=(0,255,0), thickness=1, circle_radius=1),
-                                      connection_drawing_spec=mp_drawing.DrawingSpec(color=(0,128,255), thickness=1))
-            left_ear = eye_aspect_ratio(flm.landmark, left=True)
-            right_ear = eye_aspect_ratio(flm.landmark, left=False)
-            ear = (left_ear + right_ear) / 2.0
-            now_t = time.time()
-            if ear < BLINK_EAR_THRESHOLD and (now_t - last_blink_time) > BLINK_MIN_INTERVAL:
-                blink_flag = True
-                last_blink_time = now_t
-            nose_x_global = flm.landmark[1].x
+    # Process each detected face
+    for face_encoding, face_location in zip(face_encodings, face_locations):
+        matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.6)
+        name = "Unknown"
 
-    # iterate faces detected by face_recognition (small coords -> upscale)
-    for enc, loc in zip(face_encs, face_locs):
-        top, right, bottom, left = loc
-        top, right, bottom, left = [int(v*4) for v in (top, right, bottom, left)]
-        top, left = max(0, top), max(0, left)
-        bottom, right = min(h-1, bottom), min(w-1, right)
+        if True in matches:
+            face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+            best_match_index = np.argmin(face_distances)
+            if matches[best_match_index] and face_distances[best_match_index] < 0.6:
+                name = known_face_names[best_match_index]
 
-        # recognize
-        name = "UNKNOWN"
-        if len(known_encodings) > 0 and enc is not None:
-            dists = face_recognition.face_distance(known_encodings, enc)
-            best = np.argmin(dists)
-            if dists[best] < 0.55:
-                name = known_names[best].upper()
+        # Scale back to original frame size
+        top, right, bottom, left = [v * 2 for v in face_location]
+        
+        # Add some padding for face crop
+        padding = 20
+        face_crop = frame[max(0, top-padding):bottom+padding, 
+                         max(0, left-padding):right+padding]
 
-        face_last_seen[name] = time.time()
+        # Initialize counters for this person
+        if name not in frame_count:
+            frame_count[name] = 0
+            total_blinks[name] = 0
+        frame_count[name] += 1
 
-        # prepare per-person containers
-        if name not in score_windows:
-            score_windows[name] = deque(maxlen=ROLLING_WINDOW)
-        if name not in prev_label:
-            prev_label[name] = "SUSPICIOUS"
-        if name not in prev_nose:
-            prev_nose[name] = nose_x_global if nose_x_global is not None else 0.5
-        if name not in last_challenge_time:
-            last_challenge_time[name] = 0
-        if name not in challenge_passed:
-            challenge_passed[name] = False
-        if name not in depth_windows:
-            depth_windows[name] = deque(maxlen=DEPTH_SMOOTH_WINDOW)
+        # ================== YOLO Liveness Check ==================
+        liveness_conf = 0.0
+        if face_crop.size > 0 and face_crop.shape[0] > 50 and face_crop.shape[1] > 50:
+            try:
+                # Resize face crop for better model performance
+                resized_crop = cv2.resize(face_crop, (224, 224))
+                results = liveness_model(resized_crop, verbose=False)
+                
+                for r in results:
+                    if r.boxes is not None:
+                        for box in r.boxes:
+                            cls = int(box.cls[0])
+                            conf = float(box.conf[0])
+                            # Consider both real and fake scores
+                            if classNames[cls] == "real":
+                                liveness_conf = conf
+                            # If fake score is very high, adjust real confidence
+                            elif classNames[cls] == "fake" and conf > 0.8:
+                                liveness_conf = max(0, liveness_conf - 0.2)
+            except Exception as e:
+                print(f"YOLO processing error: {e}")
 
-        # crop face for predictions
-        crop = frame[top:bottom, left:right]
-        if crop.size == 0:
-            continue
+        # ================== Update Rolling Buffer ==================
+        if name not in score_buffer:
+            score_buffer[name] = []
+        score_buffer[name].append(liveness_conf)
+        if len(score_buffer[name]) > BUFFER_SIZE:
+            score_buffer[name].pop(0)
 
-        # ONNX score
-        onnx_score = onnx_predict(crop)
-        score_windows[name].append(onnx_score)
-        avg_score = float(sum(score_windows[name]) / len(score_windows[name]))
+        avg_conf = sum(score_buffer[name]) / len(score_buffer[name]) if score_buffer[name] else 0
 
-        # depth variation
-        depth_var = None
-        if midas is not None:
-            dv = compute_depth_variation(crop)
-            if dv is not None:
-                depth_windows[name].append(dv)
-                depth_var = float(sum(depth_windows[name]) / len(depth_windows[name]))
-        # else depth_var remains None
+        # ================== Blink Detection ==================
+        blinked = False
+        if face_crop.size > 0 and face_crop.shape[0] > 50 and face_crop.shape[1] > 50:
+            try:
+                rgb_face = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                results_mesh = face_mesh.process(rgb_face)
+                
+                if results_mesh.multi_face_landmarks:
+                    landmarks = results_mesh.multi_face_landmarks[0].landmark
+                    h, w, _ = face_crop.shape
+                    
+                    # Correct eye landmark indices for MediaPipe
+                    # Left eye: 362, 385, 387, 263, 373, 380
+                    # Right eye: 33, 160, 158, 133, 153, 144
+                    ear_left = compute_EAR(landmarks, 362, 385, 387, 263, 373, 380, w, h)
+                    ear_right = compute_EAR(landmarks, 33, 160, 158, 133, 153, 144, w, h)
+                    
+                    ear = (ear_left + ear_right) / 2.0
+                    
+                    if name not in blink_counter:
+                        blink_counter[name] = 0
+                        
+                    if ear < EAR_THRESHOLD:
+                        blink_counter[name] += 1
+                    else:
+                        if blink_counter[name] >= EAR_FRAMES:
+                            blinked = True
+                            total_blinks[name] += 1
+                        blink_counter[name] = 0
+            except Exception as e:
+                print(f"Blink detection error: {e}")
 
-        # per-person head movement using nose x
-        per_head_moved = False
-        if nose_x_global is not None:
-            prev_x = prev_nose[name]
-            dx = nose_x_global - prev_x
-            if dx < -HEAD_TURN_DELTA:
-                per_head_moved = True
-                head_left = True
-            elif dx > HEAD_TURN_DELTA:
-                per_head_moved = True
-                head_right = True
-            prev_nose[name] = nose_x_global
-
-        # issue challenge if needed
-        now = time.time()
-        needs_challenge = (not challenge_passed.get(name, False)) and (now - last_challenge_time.get(name, 0) > CHALLENGE_INTERVAL)
-        if needs_challenge and name != "UNKNOWN":
-            issue_challenge(name)
-
-        # evaluate pending challenge
-        ch_passed = False
-        if name in pending_challenge:
-            ch_type, ch_start = pending_challenge[name]
-            if now - ch_start > CHALLENGE_TIMEOUT:
-                pending_challenge.pop(name, None)
-                challenge_passed[name] = False
+        # ================== Final Decision with Multiple Factors ==================
+        label = "SPOOF"
+        confidence_text = f"Conf: {avg_conf:.2f}"
+        
+        if name != "Unknown":
+            # Calculate blink rate (blinks per 30 frames)
+            blink_rate = total_blinks[name] / max(1, frame_count[name] / 30)
+            
+            # Multiple criteria for real face detection
+            criteria_met = 0
+            total_criteria = 3
+            
+            # Criterion 1: YOLO confidence
+            if avg_conf >= REAL_THRESHOLD:
+                criteria_met += 1
+            
+            # Criterion 2: Recent blink detected
+            if blinked or total_blinks[name] > 0:
+                criteria_met += 1
+            
+            # Criterion 3: Reasonable blink rate (not too high, not zero)
+            if 0 < blink_rate < 5:  # Reasonable blink rate
+                criteria_met += 1
+            
+            # Require at least 2 out of 3 criteria for REAL
+            if criteria_met >= 2:
+                label = "REAL"
+                mark_attendance(name)
+            elif avg_conf < SPOOF_THRESHOLD and total_blinks[name] == 0:
+                label = "SPOOF"
             else:
-                if ch_type == "BLINK" and blink_flag:
-                    ch_passed = True
-                if ch_type == "TURN_LEFT" and per_head_moved and dx < 0:
-                    ch_passed = True
-                if ch_type == "TURN_RIGHT" and per_head_moved and dx > 0:
-                    ch_passed = True
-                if ch_passed:
-                    challenge_passed[name] = True
-                    pending_challenge.pop(name, None)
+                label = "SUSPICIOUS"
+            
+            confidence_text += f" | Blinks: {total_blinks[name]} | Rate: {blink_rate:.1f}"
 
-        # behavioral OK: either passed challenge OR passive blink/turn recently
-        behavioral_ok = challenge_passed.get(name, False) or blink_flag or per_head_moved
-
-        # Decide label: AND-fusion with hysteresis
-        label = prev_label[name]
-        # Depth must be present and above threshold for strong check; if depth not available, we allow but warn.
-        depth_ok = (depth_var is not None and depth_var > DEPTH_VARIATION_THRESHOLD) if midas is not None else True
-
-        # Final rule:
-        # require ONNX avg confident AND behavioral_ok AND depth_ok
-        if avg_score > UPPER_THRESHOLD and behavioral_ok and depth_ok:
-            label = "REAL"
-        elif avg_score < LOWER_THRESHOLD:
-            label = "SUSPICIOUS"
-        # else keep previous to avoid flicker
-        prev_label[name] = label
-
-        # Attendance
-        if label == "REAL" and name != "UNKNOWN" and name not in session_marked:
-            mark_attendance(name)
-            session_marked.add(name)
-
-        # Visual overlays
-        color = (0,255,0) if label == "REAL" else (0,0,255)
+        # ================== Draw Results ==================
+        color = (0, 255, 0) if label == "REAL" else (0, 0, 255) if label == "SPOOF" else (0, 255, 255)
         cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-        info = f"{name} | {label} | onnx:{avg_score:.2f}"
-        if depth_var is not None:
-            info += f" depth:{depth_var:.3f}"
-        else:
-            info += " depth:N/A"
-        info += f" blink:{blink_flag} head:{per_head_moved}"
-        cv2.putText(frame, info, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # Draw name and status
+        cv2.putText(frame, f"{name}", (left, top - 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        cv2.putText(frame, f"{label}", (left, top - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        cv2.putText(frame, confidence_text, (left, bottom + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-        # challenge overlay
-        if name in pending_challenge:
-            ctype, cstart = pending_challenge[name]
-            remaining = int(CHALLENGE_TIMEOUT - (now - cstart))
-            cv2.putText(frame, f"CHALLENGE: {ctype} ({remaining}s)", (left, bottom+20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,165,255), 2)
-        else:
-            if not challenge_passed.get(name, False) and (now - last_challenge_time.get(name, 0) < CHALLENGE_TIMEOUT):
-                cv2.putText(frame, "CHALLENGE FAILED", (left, bottom+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
+    # Add system info
+    cv2.putText(frame, f"Known faces: {len(known_face_names)}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+    cv2.putText(frame, "Press 'q' to quit", (10, frame.shape[0] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    # HUD
-    cv2.putText(frame, "Press 'q' to quit", (10,20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
-    if midas is None and USE_DEPTH:
-        cv2.putText(frame, "Depth DISABLED (install torch to enable)", (10,40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1)
-
-    cv2.imshow("Liveness Attendance (MiDaS+ONNX+Behavior)", frame)
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord('q'):
+    cv2.imshow("Attendance + Liveness + Blink", frame)
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 cap.release()
 cv2.destroyAllWindows()
+print("System stopped.")
