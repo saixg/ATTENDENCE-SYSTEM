@@ -1,5 +1,6 @@
 HackHertz – AI-Powered Attendance System
-🚨 Problem Statement
+
+    🚨 Problem Statement
 
 Traditional attendance systems are error-prone and vulnerable to misuse:
 
@@ -9,7 +10,7 @@ Manual effort: Teachers waste time on roll calls and validations.
 
 No insights: Institutions lack visibility into attendance patterns and engagement.
 
-💡 Our Solution
+     💡 Our Solution
 
 We designed an AI-driven, real-time attendance system with advanced security and insights:
 
@@ -19,7 +20,7 @@ AI Insights Dashboard → Generates actionable insights on participation, absent
 
 Automation → Attendance captured seamlessly with minimal human effort.
 
-🔑 Features
+    🔑 Features
 
 🎥 Real-time face detection using computer vision.
 
@@ -31,7 +32,7 @@ Automation → Attendance captured seamlessly with minimal human effort.
 
 ⚡ Scalable backend to support classrooms and institutions.
 
-🛠️ Tech Stack
+    🛠️ Tech Stack
 
 Python (OpenCV, NumPy, scikit-learn, face_recognition)
 
@@ -43,12 +44,12 @@ React.js / Next.js for frontend dashboard
 
 SQLite / PostgreSQL for database storage
 
-🚀 Setup Instructions
+    🚀 Setup Instructions
 
 Clone the repository:
 
-git clone https://github.com/your-username/hackhertz-attendance.git
-cd hackhertz-attendance
+git clone https://github.com/saigx/attendance-system.git
+cd ATTENDENCE-SYSTTEM
 
 
 Create virtual environment and install dependencies:
